@@ -8,11 +8,13 @@
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/ASTMatchers/ASTMatchers.h"
 
+#include "iostream"
+
 using namespace clang::ast_matchers;
 
 namespace clang::tidy::ros {
 
-auto matchInterface(const std::string &MainType, const std::string &BindName) {
+auto matchInterface(const std::string &MainType) {
   return std::make_pair(
       memberExpr(
           anyOf(hasType(hasCanonicalType(hasDeclaration(
@@ -22,7 +24,7 @@ auto matchInterface(const std::string &MainType, const std::string &BindName) {
                             0, refersToType(recordType(hasDeclaration(
                                    recordDecl(hasName(MainType))))))))))))),
                 hasType(recordDecl(matchesName(MainType)))))
-          .bind(BindName),
+          .bind(MainType),
       fieldDecl(
           anyOf(hasType(hasCanonicalType(hasDeclaration(
                     recordDecl(classTemplateSpecializationDecl(allOf(
@@ -31,59 +33,88 @@ auto matchInterface(const std::string &MainType, const std::string &BindName) {
                             0, refersToType(recordType(hasDeclaration(
                                    recordDecl(hasName(MainType))))))))))))),
                 hasType(recordDecl(matchesName(MainType)))))
-          .bind(BindName));
+          .bind(MainType));
+}
+
+RosInterfaceNamesCheck::RosInterfaceNamesCheck(StringRef Name,
+                                               ClangTidyContext *Context)
+    : ClangTidyCheck(Name, Context),
+      SubscriptionPrefix(Options.get("SubscriptionPrefix", "_sub")),
+      SubscriptionSuffix(Options.get("SubscriptionSuffix", "")),
+      PublisherPrefix(Options.get("PublisherPrefix", "_pub")),
+      PublisherSuffix(Options.get("PublisherSuffix", "")),
+      ClientPrefix(Options.get("ClientPrefix", "_client")),
+      ClientSuffix(Options.get("ClientSuffix", "")),
+      ServerPrefix(Options.get("ServerPrefix", "_server")),
+      ServerSuffix(Options.get("ServerSuffix", "")) {}
+
+void RosInterfaceNamesCheck::storeOptions(ClangTidyOptions::OptionMap &Opts) {
+  Options.store(Opts, "SubscriptionPrefix", SubscriptionPrefix);
+  Options.store(Opts, "SubscriptionSuffix", SubscriptionSuffix);
+  Options.store(Opts, "PublisherPrefix", PublisherPrefix);
+  Options.store(Opts, "PublisherSuffix", PublisherSuffix);
+  Options.store(Opts, "ClientPrefix", ClientPrefix);
+  Options.store(Opts, "ClientSuffix", ClientSuffix);
+  Options.store(Opts, "ServerPrefix", ServerPrefix);
+  Options.store(Opts, "ServerSuffix", ServerSuffix);
 }
 
 void RosInterfaceNamesCheck::registerMatchers(MatchFinder *Finder) {
-  auto matchers_sub = matchInterface("rclcpp::Subscription", "sub");
-  Finder->addMatcher(matchers_sub.first, this);
-  Finder->addMatcher(matchers_sub.second, this);
-  auto matchers_pub = matchInterface("rclcpp::Publisher", "pub");
-  Finder->addMatcher(matchers_pub.first, this);
-  Finder->addMatcher(matchers_pub.second, this);
-  auto matchers_client = matchInterface("rclcpp::Client", "client");
-  Finder->addMatcher(matchers_client.first, this);
-  Finder->addMatcher(matchers_client.second, this);
-  auto matchers_service = matchInterface("rclcpp::Service", "service");
-  Finder->addMatcher(matchers_service.first, this);
-  Finder->addMatcher(matchers_service.second, this);
+  auto MatchersSub = matchInterface("rclcpp::Subscription");
+  //   Finder->addMatcher(MatchersSub.first, this);
+  Finder->addMatcher(MatchersSub.second, this);
+  auto MatchersPub = matchInterface("rclcpp::Publisher");
+  //   Finder->addMatcher(MatchersPub.first, this);
+  Finder->addMatcher(MatchersPub.second, this);
+  auto MatchersClient = matchInterface("rclcpp::Client");
+  //   Finder->addMatcher(MatchersClient.first, this);
+  Finder->addMatcher(MatchersClient.second, this);
+  auto MatchersService = matchInterface("rclcpp::Service");
+  //   Finder->addMatcher(MatchersService.first, this);
+  Finder->addMatcher(MatchersService.second, this);
 }
 
 void RosInterfaceNamesCheck::checkInterface(
     const MatchFinder::MatchResult &Result, const std::string &Type,
-    const std::string &Prefix) {
-  if (const auto *MatchedExpr = Result.Nodes.getNodeAs<MemberExpr>(Prefix)) {
+    const std::string &Prefix, const std::string &Suffix) {
+  if (const auto *MatchedExpr = Result.Nodes.getNodeAs<MemberExpr>(Type)) {
     const auto *MatchedDecl = dyn_cast<FieldDecl>(MatchedExpr->getMemberDecl());
-    if (!MatchedDecl->getIdentifier() ||
-        MatchedDecl->getName().startswith("_" + Prefix + "_"))
+    if (!MatchedDecl->getIdentifier())
       return;
 
-    diag(MatchedExpr->getExprLoc(),
-         "%2 expression %0 need to start with \"_%1\"")
-        << MatchedDecl << Prefix << Type
-        << FixItHint::CreateInsertion(MatchedExpr->getExprLoc(), "_" + Prefix);
-    diag(MatchedExpr->getExprLoc(), std::string() + "insert '_" + Prefix + "'",
-         DiagnosticIDs::Note);
+    // if (!MatchedDecl->getName().startswith(Prefix))
+    //   diag(MatchedExpr->getSourceRange().getEnd(),
+    //        "%2 expression %0 need to start with \"%1\"")
+    //       << MatchedDecl << Prefix << Type
+    //       << FixItHint::CreateInsertion(MatchedExpr->getBeginLoc(), Prefix);
+    // if (!MatchedDecl->getName().endswith(Suffix))
+    //   diag(MatchedExpr->getMemberNameInfo().getEndLoc(),
+    //        "%2 expression %0 need to end with \"%1\"")
+    //       << MatchedDecl << Suffix << Type
+    //       << FixItHint::CreateInsertion(MatchedExpr->getEndLoc(), Suffix);
   } else if (const auto *MatchedDecl =
-                 Result.Nodes.getNodeAs<FieldDecl>(Prefix)) {
-    if (!MatchedDecl->getIdentifier() ||
-        MatchedDecl->getName().startswith("_" + Prefix + "_"))
+                 Result.Nodes.getNodeAs<FieldDecl>(Type)) {
+    if (!MatchedDecl->getIdentifier())
       return;
 
-    diag(MatchedDecl->getLocation(),
-         "%2 declaration %0 need to start with \"_%1\"")
-        << MatchedDecl << Prefix << Type
-        << FixItHint::CreateInsertion(MatchedDecl->getLocation(), "_" + Prefix);
-    diag(MatchedDecl->getLocation(), std::string() + "insert '_" + Prefix + "'",
-         DiagnosticIDs::Note);
+    if (!MatchedDecl->getName().startswith(Prefix))
+      diag(MatchedDecl->getLocation(),
+           "%2 expression %0 need to start with \"%1\"")
+          << MatchedDecl << Prefix << Type
+          << FixItHint::CreateInsertion(MatchedDecl->getLocation(), Prefix);
+    if (!MatchedDecl->getName().endswith(Suffix))
+      diag(MatchedDecl->getEndLoc(), "%2 expression %0 need to end with \"%1\"")
+          << MatchedDecl << Suffix << Type
+          << FixItHint::CreateInsertion(MatchedDecl->getEndLoc(), Suffix);
   }
 }
 
 void RosInterfaceNamesCheck::check(const MatchFinder::MatchResult &Result) {
-  checkInterface(Result, "rclcpp::Subscription", "sub");
-  checkInterface(Result, "rclcpp::Publisher", "pub");
-  checkInterface(Result, "rclcpp::Client", "client");
-  checkInterface(Result, "rclcpp::Service", "service");
+  checkInterface(Result, "rclcpp::Subscription", SubscriptionPrefix,
+                 SubscriptionSuffix);
+  checkInterface(Result, "rclcpp::Publisher", PublisherPrefix, PublisherSuffix);
+  checkInterface(Result, "rclcpp::Client", ClientPrefix, ClientSuffix);
+  checkInterface(Result, "rclcpp::Service", ServerPrefix, ServerSuffix);
 }
 
 } // namespace clang::tidy::ros
