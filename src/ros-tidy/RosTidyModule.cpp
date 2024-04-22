@@ -2,6 +2,7 @@
 #include "clang-tidy/ClangTidyModule.h"
 #include "clang-tidy/ClangTidyModuleRegistry.h"
 
+#include "ros-tidy/RosIncludeOrderCheck.h"
 #include "ros-tidy/RosInterfaceNamesCheck.h"
 
 using namespace clang::ast_matchers;
@@ -14,6 +15,8 @@ class RosTidyModule : public ClangTidyModule {
 public:
   void addCheckFactories(ClangTidyCheckFactories &CheckFactories) override {
     CheckFactories.registerCheck<RosInterfaceNamesCheck>("ros-interface-names");
+    CheckFactories.registerCheck<clang::tidy::ros::RosIncludeOrderCheck>(
+        "ros-include-order");
   }
 };
 

@@ -7,6 +7,8 @@ find_package(Clang REQUIRED CONFIG)
 
 add_library(RosTidyModule MODULE "")
 
+target_compile_features(RosTidyModule PRIVATE cxx_std_17)
+
 target_include_directories(RosTidyModule
     PRIVATE
         ${CLANG_INCLUDE_DIRS}
@@ -17,6 +19,7 @@ target_sources(RosTidyModule
     PRIVATE
         src/ros-tidy/RosTidyModule.cpp
         src/ros-tidy/RosInterfaceNamesCheck.cpp
+        src/ros-tidy/RosIncludeOrderCheck.cpp
 )
 
 target_include_directories(RosTidyModule PUBLIC include)
